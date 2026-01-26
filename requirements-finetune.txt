@@ -1,0 +1,25 @@
+# Finetuning requirements for 05_finetune.py
+# Install with: pip install -r requirements-finetune.txt
+
+# Unsloth - fast finetuning library
+unsloth
+
+# Transformers and training
+transformers==4.56.2
+trl==0.22.2
+peft
+accelerate
+bitsandbytes
+
+# Dataset handling
+datasets>=4.3.0
+
+# Regex for text processing
+regex
+
+# PyTorch (install separately based on your CUDA version)
+# See: https://pytorch.org/get-started/locally/
+# torch
+
+# Optional: for GGUF conversion
+# llama-cpp-python
