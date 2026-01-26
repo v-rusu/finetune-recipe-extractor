@@ -4,7 +4,6 @@
 import argparse
 import gc
 import json
-import os
 from typing import List, Dict
 
 import regex as re
