@@ -36,6 +36,12 @@ def convert_to_chatml(example: dict) -> dict:
     }
 
 
+def get_config_value(config, key, default):
+    """Safely get config value with default, handling None."""
+    val = config.get(key, default)
+    return default if val is None else val
+
+
 def train(config=None):
     """Main training function, compatible with wandb sweeps."""
     # Initialize wandb
@@ -43,21 +49,45 @@ def train(config=None):
         # Get config from wandb (allows sweep to override)
         config = wandb.config
 
+        # Extract all config values with safe defaults
+        model_name = get_config_value(config, "model_name", "unsloth/gemma-3-270m-it")
+        dataset_path = get_config_value(config, "dataset", "./finetuning_dataset.jsonl")
+        max_seq_length = get_config_value(config, "max_seq_length", 8192)
+        lora_rank = get_config_value(config, "lora_rank", 128)
+        lora_alpha = get_config_value(config, "lora_alpha", lora_rank)
+        lora_dropout = get_config_value(config, "lora_dropout", 0)
+        batch_size = get_config_value(config, "batch_size", 4)
+        gradient_accumulation_steps = get_config_value(config, "gradient_accumulation_steps", 4)
+        max_steps = get_config_value(config, "max_steps", -1)
+        num_epochs = get_config_value(config, "num_epochs", 1)
+        learning_rate = get_config_value(config, "learning_rate", 2e-5)
+        weight_decay = get_config_value(config, "weight_decay", 0.001)
+        warmup_steps = get_config_value(config, "warmup_steps", 5)
+        lr_scheduler_type = get_config_value(config, "lr_scheduler_type", "linear")
+        optimizer = get_config_value(config, "optimizer", "adamw_8bit")
+        output_dir = get_config_value(config, "output_dir", "outputs")
+        load_4bit = get_config_value(config, "load_4bit", False)
+        load_8bit = get_config_value(config, "load_8bit", False)
+        use_rslora = get_config_value(config, "use_rslora", False)
+        save_dir = get_config_value(config, "save_dir", None)
+        save_gguf = get_config_value(config, "save_gguf", False)
+        gguf_quantization = get_config_value(config, "gguf_quantization", "Q8_0")
+
         # Load model
-        print(f"Loading model: {config.model_name}")
+        print(f"Loading model: {model_name}")
         model, tokenizer = FastModel.from_pretrained(
-            model_name=config.model_name,
-            max_seq_length=config.max_seq_length,
-            load_in_4bit=config.get("load_4bit", False),
-            load_in_8bit=config.get("load_8bit", False),
+            model_name=model_name,
+            max_seq_length=max_seq_length,
+            load_in_4bit=load_4bit,
+            load_in_8bit=load_8bit,
             full_finetuning=False,
         )
 
         # Add LoRA adapters
-        print(f"Adding LoRA adapters with rank {config.lora_rank}")
+        print(f"Adding LoRA adapters with rank {lora_rank}")
         model = FastModel.get_peft_model(
             model,
-            r=config.lora_rank,
+            r=lora_rank,
             target_modules=[
                 "q_proj",
                 "k_proj",
@@ -67,12 +97,12 @@ def train(config=None):
                 "up_proj",
                 "down_proj",
             ],
-            lora_alpha=config.get("lora_alpha", config.lora_rank),
-            lora_dropout=config.get("lora_dropout", 0),
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
             bias="none",
             use_gradient_checkpointing="unsloth",
             random_state=3407,
-            use_rslora=config.get("use_rslora", False),
+            use_rslora=use_rslora,
             loftq_config=None,
         )
 
@@ -80,8 +110,8 @@ def train(config=None):
         tokenizer = get_chat_template(tokenizer, chat_template="gemma3")
 
         # Load and process dataset
-        print(f"Loading dataset from: {config.dataset}")
-        raw_data = load_jsonl(config.dataset)
+        print(f"Loading dataset from: {dataset_path}")
+        raw_data = load_jsonl(dataset_path)
         print(f"Loaded {len(raw_data)} examples")
 
         dataset = Dataset.from_list(raw_data)
@@ -108,18 +138,18 @@ def train(config=None):
         print("Setting up trainer...")
         sft_config = SFTConfig(
             dataset_text_field="text",
-            per_device_train_batch_size=config.batch_size,
-            gradient_accumulation_steps=config.gradient_accumulation_steps,
-            warmup_steps=config.get("warmup_steps", 5),
-            max_steps=config.max_steps if config.max_steps > 0 else None,
-            num_train_epochs=config.num_epochs if config.max_steps <= 0 else 1,
-            learning_rate=config.learning_rate,
+            per_device_train_batch_size=batch_size,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            warmup_steps=warmup_steps,
+            max_steps=max_steps if max_steps > 0 else None,
+            num_train_epochs=num_epochs if max_steps <= 0 else 1,
+            learning_rate=learning_rate,
             logging_steps=1,
-            optim=config.get("optimizer", "adamw_8bit"),
-            weight_decay=config.get("weight_decay", 0.001),
-            lr_scheduler_type=config.get("lr_scheduler_type", "linear"),
+            optim=optimizer,
+            weight_decay=weight_decay,
+            lr_scheduler_type=lr_scheduler_type,
             seed=3407,
-            output_dir=config.get("output_dir", "outputs"),
+            output_dir=output_dir,
             report_to="wandb",
         )
 
@@ -181,20 +211,19 @@ def train(config=None):
             print(f"Peak reserved memory % of max memory = {used_percentage} %.")
 
         # Save model if configured
-        save_dir = config.get("save_dir", None)
         if save_dir:
             print(f"\nSaving model to: {save_dir}")
             model.save_pretrained(save_dir)
             tokenizer.save_pretrained(save_dir)
 
             # Save GGUF if requested
-            if config.get("save_gguf", False):
+            if save_gguf:
                 gguf_dir = f"{save_dir}-gguf"
                 print(f"Saving GGUF to: {gguf_dir}")
                 model.save_pretrained_gguf(
                     gguf_dir,
                     tokenizer,
-                    quantization_method=config.get("gguf_quantization", "Q8_0"),
+                    quantization_method=gguf_quantization,
                 )
 
         print("\nTraining complete!")
