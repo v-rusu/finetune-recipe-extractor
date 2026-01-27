@@ -117,6 +117,53 @@ Finetunes Gemma-3 270M using Unsloth and LoRA.
 | `--load-8bit` | `False` | Load model in 8-bit |
 | `--skip-inference-test` | `False` | Skip post-training inference test |
 
+---
+
+### 06_finetune_wandb.py
+
+Finetunes with Weights & Biases experiment tracking and hyperparameter sweep support.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--dataset` | `./finetuning_dataset.jsonl` | Training dataset |
+| `--model-name` | `unsloth/gemma-3-270m-it` | Base model |
+| `--max-seq-length` | `8192` | Maximum sequence length |
+| `--lora-rank` | `128` | LoRA rank |
+| `--lora-alpha` | `(same as rank)` | LoRA alpha scaling |
+| `--lora-dropout` | `0` | LoRA dropout |
+| `--batch-size` | `4` | Per-device batch size |
+| `--gradient-accumulation-steps` | `4` | Gradient accumulation |
+| `--max-steps` | `50` | Training steps (-1 for full epochs) |
+| `--num-epochs` | `1` | Epochs (when max-steps is -1) |
+| `--learning-rate` | `2e-5` | Learning rate |
+| `--weight-decay` | `0.001` | Weight decay |
+| `--warmup-steps` | `5` | Warmup steps |
+| `--lr-scheduler-type` | `linear` | LR scheduler (linear, cosine, constant, constant_with_warmup) |
+| `--optimizer` | `adamw_8bit` | Optimizer (adamw_8bit, adamw_torch, sgd, adafactor) |
+| `--use-rslora` | `False` | Use rank-stabilized LoRA |
+| `--wandb-project` | `recipe-extractor-finetune` | W&B project name |
+| `--wandb-entity` | `None` | W&B team/username |
+| `--sweep-id` | `None` | Join existing sweep |
+| `--sweep-count` | `None` | Number of sweep runs |
+
+---
+
+### sweep.yaml
+
+W&B sweep configuration for hyperparameter optimization using Bayesian search.
+
+**Swept Parameters:**
+- `learning_rate`: log-uniform 1e-6 to 1e-4
+- `lora_rank`: [32, 64, 128, 256]
+- `lora_alpha`: [32, 64, 128, 256]
+- `lora_dropout`: [0, 0.05, 0.1]
+- `batch_size`: [2, 4, 8]
+- `gradient_accumulation_steps`: [2, 4, 8]
+- `weight_decay`: log-uniform 1e-4 to 1e-2
+- `warmup_steps`: [0, 5, 10, 20]
+- `lr_scheduler_type`: [linear, cosine, constant_with_warmup]
+- `use_rslora`: [false, true]
+
 ## Installation
 
 ### For Data Generation (Steps 1-4)
@@ -207,6 +254,25 @@ python 05_finetune.py --max-steps -1 --num-epochs 1 --save-gguf
 3. Upload `finetuning_dataset.jsonl` to the Colab file browser
 4. Select GPU runtime: Runtime > Change runtime type > T4 GPU
 5. Run all cells
+
+### Step 5b: Finetune with W&B (Optional)
+
+For experiment tracking and hyperparameter sweeps:
+
+```bash
+# Single run with W&B tracking
+python 06_finetune_wandb.py --wandb-project my-project
+
+# Create a hyperparameter sweep
+wandb sweep sweep.yaml
+# Returns: Created sweep with ID: <sweep_id>
+
+# Run sweep agent (executes multiple training runs)
+wandb agent <sweep_id>
+
+# Or run via the script with count limit
+python 06_finetune_wandb.py --sweep-id <sweep_id> --sweep-count 10
+```
 
 ## Output
 

@@ -17,6 +17,9 @@ datasets>=4.3.0
 # Regex for text processing
 regex
 
+# Experiment tracking (for 06_finetune_wandb.py)
+wandb
+
 # PyTorch (install separately based on your CUDA version)
 # See: https://pytorch.org/get-started/locally/
 # torch
