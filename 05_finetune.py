@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Finetune Gemma-3 model for recipe extraction using Unsloth."""
 
+import unsloth
+
+import os
+os.environ['UNSLOTH_RETURN_LOGITS'] = '1'
+
 import argparse
 import gc
 import json
@@ -12,7 +17,6 @@ from datasets import Dataset
 from trl import SFTTrainer, SFTConfig
 from unsloth import FastModel
 from unsloth.chat_templates import get_chat_template, train_on_responses_only
-
 
 def load_jsonl(path: str) -> List[Dict]:
     """Load a JSONL file and return a list of dictionaries."""
@@ -34,6 +38,95 @@ def convert_to_chatml(example: dict) -> dict:
         ]
     }
 
+# CONFIG = {
+#     "lora_rank": 128,
+#     "max_steps": 50,
+#     "learning_rate": 2e-5,
+#     "save_dir": "gemma-3-r128-max50-lr2e-5",
+# }
+
+# CONFIG = {
+#     "lora_rank": 128,
+#     "max_steps": 150,
+#     "learning_rate": 2e-5,
+#     "save_dir": "gemma-3-r128-max150-lr2e-5",
+# }
+
+# CONFIG = {
+#     "lora_rank": 128,
+#     "max_steps": 150,
+#     "learning_rate": 1e-5,
+#     "save_dir": "gemma-3-r128-max150-lr1e-5",
+# }
+
+# CONFIG = {
+#     "lora_rank": 256,
+#     "max_steps": 50,
+#     "learning_rate": 2e-5,
+#     "save_dir": "gemma-3-r256-max50-lr2e-5",
+# }
+
+# CONFIG = {
+#     "lora_rank": 256,
+#     "max_steps": 150,
+#     "learning_rate": 2e-5,
+#     "save_dir": "gemma-3-r256-max150-lr2e-5",
+# }
+
+# CONFIG = {
+#     "lora_rank": 256,
+#     "max_steps": 150,
+#     "learning_rate": 1e-5,
+#     "save_dir": "gemma-3-r256-max150-lr1e-5",
+# }
+
+# CONFIG = {
+#     "lora_rank": 128,
+#     "max_steps": 50,
+#     "learning_rate": 1e-5,
+#     "save_dir": "gemma-3-r128-max50-lr1e-5",
+# }
+
+# Second best model so far
+# CONFIG = {
+#     "lora_rank": 128,
+#     "max_steps": 50,
+#     "learning_rate": 5e-4,
+#     "save_dir": "gemma-3-r128-max50-lr5e-4",
+# }
+
+## This is the best model so far
+# CONFIG = {
+#     "lora_rank": 64,
+#     "max_steps": 50,
+#     "learning_rate": 5e-4,
+#     "save_dir": "gemma-3-r64-max50-lr5e-4",
+# }
+
+# Worse than the previous one
+# CONFIG = {
+#     "lora_rank": 64,
+#     "max_steps": 50,
+#     "gradient_accumulation_steps": 1,
+#     "learning_rate": 5e-4,
+#     "save_dir": "gemma-3-r64-max50-ga1-lr5e-4",
+# }
+
+# CONFIG = {
+#     "lora_rank": 64,
+#     "max_steps": 50,
+#     "gradient_accumulation_steps": 6,
+#     "learning_rate": 5e-4,
+#     "save_dir": "gemma-3-r64-max50-ga6-lr5e-4",
+# }
+
+CONFIG = {
+    "lora_rank": 64, # Try lora 32 tomorrow
+    "max_steps": 35,
+    "gradient_accumulation_steps": 4,
+    "learning_rate": 5e-4,
+    "save_dir": "gemma-3-r64-max35-lr5e-4",
+}
 
 def main():
     parser = argparse.ArgumentParser(description="Finetune Gemma-3 for recipe extraction")
@@ -58,7 +151,7 @@ def main():
     parser.add_argument(
         "--lora-rank",
         type=int,
-        default=128,
+        default=CONFIG["lora_rank"],
         help="LoRA rank (r parameter)",
     )
     parser.add_argument(
@@ -70,25 +163,19 @@ def main():
     parser.add_argument(
         "--gradient-accumulation-steps",
         type=int,
-        default=4,
+        default=CONFIG["gradient_accumulation_steps"] if CONFIG["gradient_accumulation_steps"] is not None else 4,
         help="Gradient accumulation steps",
     )
     parser.add_argument(
         "--max-steps",
         type=int,
-        default=50,
+        default=CONFIG["max_steps"],
         help="Maximum training steps (set to -1 for full epochs)",
-    )
-    parser.add_argument(
-        "--num-epochs",
-        type=int,
-        default=1,
-        help="Number of training epochs (used when max-steps is -1)",
     )
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=2e-5,
+        default=CONFIG["learning_rate"],
         help="Learning rate",
     )
     parser.add_argument(
@@ -100,7 +187,7 @@ def main():
     parser.add_argument(
         "--save-dir",
         type=str,
-        default="gemma-3",
+        default=CONFIG["save_dir"],
         help="Directory to save the final model",
     )
     parser.add_argument(
@@ -124,11 +211,6 @@ def main():
         "--load-8bit",
         action="store_true",
         help="Load model in 8-bit quantization",
-    )
-    parser.add_argument(
-        "--skip-inference-test",
-        action="store_true",
-        help="Skip the inference test after training",
     )
     args = parser.parse_args()
 
@@ -189,9 +271,10 @@ def main():
 
     dataset = dataset.map(formatting_prompts_func, batched=True)
 
-    # Clear memory before training
-    gc.collect()
-    torch.cuda.empty_cache()
+    dataset_split = dataset.train_test_split(test_size=0.05, seed=42)
+
+    train_dataset = dataset_split['train']
+    eval_dataset = dataset_split['test']
 
     # Setup trainer
     print("Setting up trainer...")
@@ -200,8 +283,7 @@ def main():
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         warmup_steps=5,
-        max_steps=args.max_steps if args.max_steps > 0 else None,
-        num_train_epochs=args.num_epochs if args.max_steps <= 0 else 1,
+        max_steps=args.max_steps,
         learning_rate=args.learning_rate,
         logging_steps=1,
         optim="adamw_8bit",
@@ -214,8 +296,8 @@ def main():
 
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
-        train_dataset=dataset,
+        processing_class=tokenizer,
+        train_dataset=train_dataset,
         eval_dataset=None,
         args=sft_config,
     )
@@ -253,11 +335,6 @@ def main():
         print(f"Peak reserved memory for training = {used_memory_for_lora} GB.")
         print(f"Peak reserved memory % of max memory = {used_percentage} %.")
 
-    # Run inference test
-    if not args.skip_inference_test:
-        print("\nRunning inference test...")
-        run_inference_test(model, tokenizer)
-
     # Save model
     print(f"\nSaving model to: {args.save_dir}")
     model.save_pretrained(args.save_dir)
@@ -274,87 +351,6 @@ def main():
         )
 
     print("\nTraining complete!")
-
-
-def run_inference_test(model, tokenizer):
-    """Run a quick inference test on the trained model."""
-    system_prompt = """You are a recipe extraction assistant. Your task is to analyze the provided text and extract recipe information in LD-JSON format following the schema.org Recipe specification.
-
-Given a piece of text that describes a cooking recipe (possibly including a long blog post, personal stories, comments, etc.), extract a single Recipe object in JSON-LD format.
-
-Return ONLY valid JSON in the following format:
-{
-  "@context": "https://schema.org",
-  "@type": "Recipe",
-  "name": "Recipe Name",
-  "description": "Recipe description",
-  "recipeIngredient": ["quantity of ingredient 1", "quantity of ingredient 2", ...],
-  "recipeInstructions": [
-    {
-      "@type": "HowToStep",
-      "text": "Step 1 instruction"
-    }
-  ],
-  "prepTime": "PT15M",
-  "cookTime": "PT30M",
-  "totalTime": "PT45M",
-  "recipeYield": "4 servings",
-  "recipeCategory": "Main Course",
-  "recipeCuisine": "Italian",
-  "keywords": "pasta, dinner"
-}
-
-Include as many fields as you can extract from the text. If you cannot find recipe information, return an empty object.
-
-Do not include any explanatory text, only the JSON."""
-
-    user_content = """Extract the recipe data from this text:
-
-Simple Pancakes
-
-Ingredients:
-- 1 cup flour
-- 1 egg
-- 1 cup milk
-- 2 tbsp butter, melted
-
-Instructions:
-1. Mix flour and egg in a bowl.
-2. Add milk and melted butter, stir until smooth.
-3. Heat a pan over medium heat.
-4. Pour batter and cook until bubbles form, then flip.
-5. Serve warm with syrup.
-
-Prep time: 5 minutes
-Cook time: 15 minutes
-Serves: 4
-"""
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
-
-    text = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    ).removeprefix("<bos>")
-
-    from transformers import TextStreamer
-
-    print("Model output:")
-    print("-" * 50)
-    _ = model.generate(
-        **tokenizer(text, return_tensors="pt").to("cuda"),
-        max_new_tokens=1000,
-        temperature=1,
-        top_p=0.95,
-        top_k=64,
-        streamer=TextStreamer(tokenizer, skip_prompt=True),
-    )
-    print("-" * 50)
-
 
 if __name__ == "__main__":
     main()

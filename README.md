@@ -107,7 +107,6 @@ Finetunes Gemma-3 270M using Unsloth and LoRA.
 | `--batch-size` | `4` | Per-device batch size |
 | `--gradient-accumulation-steps` | `4` | Gradient accumulation |
 | `--max-steps` | `50` | Training steps (-1 for full epochs) |
-| `--num-epochs` | `1` | Epochs (when max-steps is -1) |
 | `--learning-rate` | `2e-5` | Learning rate |
 | `--output-dir` | `outputs` | Checkpoint directory |
 | `--save-dir` | `gemma-3` | Final model save directory |
@@ -119,50 +118,30 @@ Finetunes Gemma-3 270M using Unsloth and LoRA.
 
 ---
 
-### 06_finetune_wandb.py
+### 06_eval.py
 
-Finetunes with Weights & Biases experiment tracking and hyperparameter sweep support.
+Evaluates a finetuned model on a held-out test set using both structural validation and LLM-based quality assessment ("vibes" evaluation).
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--dataset` | `./finetuning_dataset.jsonl` | Training dataset |
-| `--model-name` | `unsloth/gemma-3-270m-it` | Base model |
-| `--max-seq-length` | `8192` | Maximum sequence length |
-| `--lora-rank` | `128` | LoRA rank |
-| `--lora-alpha` | `(same as rank)` | LoRA alpha scaling |
-| `--lora-dropout` | `0` | LoRA dropout |
-| `--batch-size` | `4` | Per-device batch size |
-| `--gradient-accumulation-steps` | `4` | Gradient accumulation |
-| `--max-steps` | `50` | Training steps (-1 for full epochs) |
-| `--num-epochs` | `1` | Epochs (when max-steps is -1) |
-| `--learning-rate` | `2e-5` | Learning rate |
-| `--weight-decay` | `0.001` | Weight decay |
-| `--warmup-steps` | `5` | Warmup steps |
-| `--lr-scheduler-type` | `linear` | LR scheduler (linear, cosine, constant, constant_with_warmup) |
-| `--optimizer` | `adamw_8bit` | Optimizer (adamw_8bit, adamw_torch, sgd, adafactor) |
-| `--use-rslora` | `False` | Use rank-stabilized LoRA |
-| `--wandb-project` | `recipe-extractor-finetune` | W&B project name |
-| `--wandb-entity` | `None` | W&B team/username |
-| `--sweep-id` | `None` | Join existing sweep |
-| `--sweep-count` | `None` | Number of sweep runs |
+| `--dataset` | `./finetuning_dataset.jsonl` | Path to the JSONL dataset file |
+| `--model-name` | `gemma-3-r64-max35-lr5e-4` | Model directory to evaluate |
+
+**Features**:
+- Splits dataset into 95% train / 5% eval
+- Batch inference for efficiency (configurable batch size)
+- Structural validation via `RecipeEvaluator` (checks schema.org Recipe format)
+- Quality evaluation via `VibesEvaluator` (LLM-based assessment of extraction quality)
+- Saves detailed results with per-sample evaluations to timestamped JSON file
+
+**Configuration** (edit `CONFIG` dict in script):
+- `batch_size`: Number of samples to process in parallel (default: 48)
+- `vibes_samples_per_batch`: Samples per batch to evaluate with LLM (default: 2)
+- `vibes_model`: LLM for quality assessment (default: `deepseek/deepseek-v3.2`)
+
+**Note**: Vibes evaluation requires an OpenRouter API key in `.env` file (`OPENROUTER_API_KEY=...`). If not set, evaluation continues with structural validation only.
 
 ---
-
-### sweep.yaml
-
-W&B sweep configuration for hyperparameter optimization using Bayesian search.
-
-**Swept Parameters:**
-- `learning_rate`: log-uniform 1e-6 to 1e-4
-- `lora_rank`: [32, 64, 128, 256]
-- `lora_alpha`: [32, 64, 128, 256]
-- `lora_dropout`: [0, 0.05, 0.1]
-- `batch_size`: [2, 4, 8]
-- `gradient_accumulation_steps`: [2, 4, 8]
-- `weight_decay`: log-uniform 1e-4 to 1e-2
-- `warmup_steps`: [0, 5, 10, 20]
-- `lr_scheduler_type`: [linear, cosine, constant_with_warmup]
-- `use_rslora`: [false, true]
 
 ## Installation
 
@@ -181,7 +160,9 @@ pip install -r requirements.txt
 
 **Option A: Local with GPU**
 ```bash
-pip install -r requirements-finetune.txt
+pip install --upgrade pip && pip install uv
+uv pip install unsloth
+uv pip install -r requirements-finetune.txt
 ```
 
 **Option B: Google Colab (Recommended - Free GPU)**
@@ -299,6 +280,10 @@ The finetuning dataset uses a messages format with reasoning traces:
 ```
 
 The reasoning traces are removed during finetuning for non-reasoning models like Gemma-3 270M, but preserved in the dataset for potential use with reasoning-capable models.
+
+## Training dataset
+
+The complete training dataset is available on [huggingface](https://huggingface.co/datasets/v-rusu/recipe-extractor-dataset)
 
 ## License
 
