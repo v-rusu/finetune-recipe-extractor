@@ -224,9 +224,6 @@ python 04_generate_finetuning_dataset.py --split 0.9
 ```bash
 # Quick test run (50 steps)
 python 05_finetune.py
-
-# Full training with GGUF export
-python 05_finetune.py --max-steps -1 --num-epochs 1 --save-gguf
 ```
 
 **Google Colab:**
@@ -235,25 +232,6 @@ python 05_finetune.py --max-steps -1 --num-epochs 1 --save-gguf
 3. Upload `finetuning_dataset.jsonl` to the Colab file browser
 4. Select GPU runtime: Runtime > Change runtime type > T4 GPU
 5. Run all cells
-
-### Step 5b: Finetune with W&B (Optional)
-
-For experiment tracking and hyperparameter sweeps:
-
-```bash
-# Single run with W&B tracking
-python 06_finetune_wandb.py --wandb-project my-project
-
-# Create a hyperparameter sweep
-wandb sweep sweep.yaml
-# Returns: Created sweep with ID: <sweep_id>
-
-# Run sweep agent (executes multiple training runs)
-wandb agent <sweep_id>
-
-# Or run via the script with count limit
-python 06_finetune_wandb.py --sweep-id <sweep_id> --sweep-count 10
-```
 
 ## Output
 
